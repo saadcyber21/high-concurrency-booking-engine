@@ -6,7 +6,7 @@ import httpx
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Have concurrent clients compete for one seat")
+    parser = argparse.ArgumentParser(description="Concurrent clients compete for one seat")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--event-id", required=True)
     parser.add_argument("--seat", type=int, default=1)
