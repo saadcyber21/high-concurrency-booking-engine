@@ -16,7 +16,7 @@ from app.queue import enqueue_webhook
 from app.schemas import EventCreate, EventOut, SeatOut, WebhookIn, WebhookOut
 
 Base.metadata.create_all(bind=engine)
-app = FastAPI(title="High-Concurrency Booking Engine", version="0.1.0", description="Seat booking with expiring holds and idempotent payment webhooks.")
+app = FastAPI(title="High-Concurrency Booking Engine", version="0.1.0")
 
 
 @app.exception_handler(RequestValidationError)
@@ -37,22 +37,21 @@ def _aware(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-@app.get("/health", tags=["system"])
+@app.get("/health")
 def health():
     return {"status": "ok"}
 
 
-@app.post("/v1/events", response_model=EventOut, status_code=201, tags=["events"])
+@app.post("/v1/events", response_model=EventOut, status_code=201)
 def create_event(payload: EventCreate, db: Session = Depends(get_db)):
     event = Event(id=str(uuid4()), name=payload.name.strip())
     db.add(event)
-    seats = [Seat(id=str(uuid4()), event_id=event.id, number=n, status="available") for n in range(1, payload.seat_count + 1)]
-    db.add_all(seats)
+    db.add_all([Seat(id=str(uuid4()), event_id=event.id, number=n, status="available") for n in range(1, payload.seat_count + 1)])
     db.commit()
     return {"id": event.id, "name": event.name, "seat_count": payload.seat_count}
 
 
-@app.get("/v1/events/{event_id}/seats", response_model=list[SeatOut], tags=["seats"])
+@app.get("/v1/events/{event_id}/seats", response_model=list[SeatOut])
 def list_seats(event_id: str, limit: int = 100, db: Session = Depends(get_db)):
     if db.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail={"code": "event_not_found", "message": "Event not found"})
@@ -60,7 +59,7 @@ def list_seats(event_id: str, limit: int = 100, db: Session = Depends(get_db)):
     return list(db.scalars(statement))
 
 
-@app.post("/v1/events/{event_id}/seats/{number}/hold", response_model=SeatOut, tags=["seats"])
+@app.post("/v1/events/{event_id}/seats/{number}/hold", response_model=SeatOut)
 def hold_seat(event_id: str, number: int, idempotency_key: str = Header(alias="Idempotency-Key", min_length=1, max_length=255), db: Session = Depends(get_db)):
     seat = db.scalar(select(Seat).where(Seat.event_id == event_id, Seat.number == number).with_for_update())
     if seat is None:
@@ -70,8 +69,6 @@ def hold_seat(event_id: str, number: int, idempotency_key: str = Header(alias="I
     if seat.status == "booked":
         raise HTTPException(status_code=409, detail={"code": "seat_booked", "message": "Seat is already booked"})
     if seat.status == "held" and expiry and expiry > now:
-        if seat.hold_id == idempotency_key:
-            return seat
         raise HTTPException(status_code=409, detail={"code": "seat_held", "message": "Seat is currently held"})
     seat.status = "held"
     seat.hold_id = str(uuid4())
@@ -112,7 +109,7 @@ def process_webhook(payload: WebhookIn, db: Session) -> bool:
         return True
 
 
-@app.post("/v1/webhooks/payment", response_model=WebhookOut, tags=["webhooks"])
+@app.post("/v1/webhooks/payment", response_model=WebhookOut)
 def payment_webhook(payload: WebhookIn, x_process_inline: str | None = Header(default=None), db: Session = Depends(get_db)):
     if x_process_inline != "true" and enqueue_webhook(payload.model_dump()):
         return {"accepted": True, "queued": True}
